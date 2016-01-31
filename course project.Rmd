@@ -1,0 +1,100 @@
+---
+title: "A Reproduction of Qualitative Activity Recognition of Weight Lifting Exercises"
+output: html_document
+---
+###Author: Dylan Weil
+
+###Abstract
+
+In this paper we attempt to reproduce the machine learning-based model building endeavors of several researchers attempting to use quantitative exercise data to predict the categories of errors individuals make during their weight lifting routines.  The authors on this paper were able to build a Random Forest model and tested the accuracy of its predictions using k-fold cross validation (10 fold). When applying this model to their testing dataset, their accuracies for each response variable (there were 5 classes of response variables, or exercise mistakes) were as follows: class A with 97.6%, class B with 97.3%, class C with 98.2%, class D with 98.1%, and class E with 99.1%.  In this reproduction, I also implemented a Random Forest modeling approach using 10-fold cross validation, and the accuracies for each class are as follows: class A with 99.52%, class B with 99.38%, class C with 98.08%, class D with 99.89%, and class E with 100% accuracy.  When testing this model using instructor-provided usecases, the model achieved 100% accuracy in all of its predictions for each class.
+
+###Methods
+
+First, the all of the proper libraries were loaded into R:
+
+```{r, echo = TRUE, warning = FALSE, message = FALSE}
+library(caret)
+library(randomForest)
+library(parallel)
+library(doParallel)
+library(knitr)
+```
+
+Next the raw training and testing datasets were loaded:
+
+```{r, echo = TRUE}
+training <- read.csv('training_set.csv', header = TRUE)
+testing <- read.csv('testing_set.csv', header = TRUE)
+dim(training)
+dim(testing)
+```
+
+Based on the dimensions of the datasets above, they will need fairly extensive preprocessing to reduce runtime and ensure accurate modeling. The first eight columns were removed as they weren't included to act as predictor variables, and any predictor variables with an NA content of 80% or more were removed as well:
+
+```{r, echo = TRUE, cache = TRUE}
+training <- training[8:length(training)]
+testing <- testing[8:length(testing)]
+training <- training[,colSums(is.na(training)) < nrow(training) * 0.8]
+testing <- testing[,colSums(is.na(testing)) < nrow(testing) * 0.8]
+```
+
+The final list of predictors was compiled from all matches between remaining predictors from the training and testing datasets.  These were then used to subset both datasets:
+
+```{r, echo = TRUE, cache = TRUE}
+predictors <- intersect(names(training), names(testing))
+reduced_training <- data.frame(classe = training$classe)
+reduced_testing <- data.frame(row_id = c(1:nrow(testing)))
+for(i in 1:length(predictors)) {
+  reduced_training = cbind(reduced_training, training[predictors[i]])
+  reduced_testing = cbind(reduced_testing, testing[predictors[i]])
+}
+reduced_testing <- reduced_testing[2:length(reduced_testing)]
+dim(reduced_training)
+dim(reduced_testing)
+```
+
+The number of predictor variables has been successfully reduced to a much more reasonable level. Now its time for model building. First, to further reduce computational runtime, 3-core parallel processing was configured along with our 10-fold cross validation method:
+
+```{r, echo = TRUE, cache = TRUE}
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+fitControl <- trainControl(method = 'cv', number = 10, allowParallel = TRUE)
+```
+
+Then, the training dataset was further subsetted into training and testing subsets:
+
+```{r, echo = TRUE, cache = TRUE}
+inTrain <- createDataPartition(reduced_training$classe, p = 0.7, list = FALSE)
+ntrain <- reduced_training[inTrain,]
+ntest <- reduced_training[-inTrain,]
+```
+
+Then the Random Forest model was constructed:
+
+```{r, echo = TRUE, cache = TRUE}
+RfModFit <- train(classe ~., data = ntrain, method = 'rf', trControl = fitControl) 
+```
+
+And predictions were computed:
+
+```{r, echo = TRUE, cache = TRUE}
+pred <- predict(RfModFit, ntest) 
+```
+
+###Results
+
+Model accuracy was constructed as follows:
+```{r, echo = TRUE, cache = TRUE}
+confusionMatrix(ntest$classe, pred)
+```
+
+According to the above confusion matrix, this model demonstrates high accuracy across all response classes.  The results for our instructor provided usecases are as follows:
+```{r, echo = TRUE, cache = TRUE}
+predict(RfModFit, reduced_testing)
+```
+
+The above results were 100% accurate.
+
+###Discussion
+
+In this paper we successfully produced a highly accurate Random Forest statistical model that can predict errors in weight lifting based on input quantitative sensor data. The accuracy statistics for this model align very closesly with the accuracies the authors claimed in the original paper for this study.  Future work may involve playing around with different model types and testing methods to study how these paramters influence overall model accuracy, but this will require an extensive amount of computational resources and would be better suited for someone with a high-end professional workstation as opposed to a recreational laptop.
